@@ -1,0 +1,246 @@
+<html>
+<body>
+<style>
+    * {
+        margin: 0;
+        padding: 0;
+    }
+
+    #container {
+        width: 100vw;
+        height: 100vh;
+        background: #000;
+    }
+
+    #canvas {
+        background: #333;
+    }
+</style>
+
+<div id="container">
+    <canvas id="canvas"></canvas>
+</div>
+
+<script>
+    ////// INITIALIZE
+    Vector = function (_x, _y) {
+        return {
+            x: _x,
+            y: _y,
+            Add: function (_vec) {
+                this.x += _vec.x;
+                this.y += _vec.y;
+            },
+            Subtract: function (_vec) {
+                this.x -= _vec.x;
+                this.y -= _vec.y;
+            },
+            Diff: function (_vec) {
+                return Vector(this.x - _vec.x, this.y - _vec.y);
+            },
+            Set: function (_x, _y) {
+                this.x = _x;
+                this.y = _y;
+            },
+            Mult: function (_n) {
+                this.x *= _n;
+                this.y *= _n;
+            },
+            Dist: function (_vec) {
+                var diff = this.Diff(_vec);
+                return Math.sqrt(diff.x * diff.x + diff.y * diff.y);
+            },
+            Normalize: function () {
+                var d = this.Dist(Vector(0, 0));
+                return this.Mult(1 / d);
+            },
+            Report: function () {
+                console.log(this.x + ", " + this.y);
+            }
+        }
+    };
+
+    Boid = function(_id, _x, _y, _sprite, _master) {
+        return {
+            id: _id,
+            pos: Vector(_x, _y),
+            speed: Vector(0, 0),
+            sprite: _sprite,
+            master: _master,
+            SetSpeed: function(vec) {
+                this.speed = vec;
+            },
+            SetPos: function(vec) {
+                this.pos = vec;
+            },
+            Draw: function () {
+                ctx.save();
+                ctx.translate(this.pos.x, this.pos.y);
+                ctx.drawImage(this.sprite, -3.5, -3.5);
+                ctx.restore();
+            },
+            Update: function () {
+                this.pos.Add(this.speed);
+                this.Screenwrap();
+
+                var alignment = Vector(0,0);
+                var cohesion = Vector(0,0);
+                var separation = Vector(0,0);
+
+                // Alignment
+                var targetVec = Vector(0,0);
+                var agentCount = 0;
+                for (var i = 0; i < this.master.length; i++) {
+                    if (this.id !== i) {
+                        var dist = this.pos.Dist(this.master[i].pos);
+                        if (dist < 100 && dist > 1) {
+                            targetVec.Add(this.master[i].speed);
+                            agentCount++;
+                        }
+                    }
+                }
+                if (agentCount > 0) {
+                    targetVec.Mult(1 / agentCount);
+                    targetVec.Normalize();
+                    targetVec.Mult(1);
+                    alignment = targetVec;
+                }
+
+
+                // Cohesion
+                targetVec = Vector(0,0);
+                agentCount = 0;
+                for (var i = 0; i < this.master.length; i++) {
+                    if (this.id !== i) {
+                        var dist = this.pos.Dist(this.master[i].pos);
+                        if (dist < 100 && dist > 1) {
+                            agentCount++;
+                            targetVec.Add(this.master[i].pos);
+                        }
+                    }
+                }
+                if (agentCount > 0) {
+                    targetVec.Mult(1 / agentCount);
+                    targetVec = targetVec.Diff(this.pos);
+                    targetVec.Normalize();
+                    targetVec.Mult(1);
+                    cohesion = targetVec;
+                }
+
+                // Separation
+                targetVec = Vector(0,0);
+                agentCount = 0;
+                for (var i = 0; i < this.master.length; i++) {
+                    if (this.id !== i) {
+                        var dist = this.pos.Dist(this.master[i].pos);
+                        if (dist < 100 && dist > 1) {
+                            agentCount++;
+                            targetVec.Add(this.master[i].pos.Diff(this.pos));
+                        }
+                    }
+                }
+                if (agentCount > 0) {
+                    targetVec.Mult(1 / agentCount);
+                    targetVec.Normalize();
+                    targetVec.Mult(-1);
+                    separation = targetVec;
+                }
+
+                this.speed.Add(alignment);
+                this.speed.Add(cohesion);
+                this.speed.Add(separation);
+                this.speed.Normalize();
+            },
+            Screenwrap: function() {
+                if (this.pos.x > canvas.width) {
+                    this.pos.x -= canvas.width;
+                }
+                if (this.pos.x < 0) {
+                    this.pos.x += canvas.width;
+                }
+                if (this.pos.y > canvas.height) {
+                    this.pos.y -= canvas.height;
+                }
+                if (this.pos.y < 0) {
+                    this.pos.y += canvas.height;
+                }
+            }
+        }
+    };
+
+    var boidSprite = new Image();
+    boidSprite.src = 'https://mdn.mozillademos.org/files/1443/Canvas_moon.png';
+
+    var container = document.getElementById('container');
+    var canvas = document.getElementById('canvas');
+    var ctx = canvas.getContext('2d');
+    canvas.width  = container.offsetWidth;
+    canvas.height = container.offsetHeight;
+
+
+    var boids = [];
+    var boidsCount = 100;
+    for (var i = 0; i < boidsCount; i++) {
+        boids[i] = Boid(i, Math.random() * canvas.width, Math.random() * canvas.height, boidSprite, boids);
+        boids[i].SetSpeed(Vector(Math.random() * 4 - 2, Math.random() * 4 - 2));
+    }
+
+//    boid.SetSpeed(Vector(0,0));
+
+    ////////////////////////////////////////////////////////////////////////////////////
+
+    function init() {
+        window.requestAnimationFrame(draw);
+    }
+
+    function draw() {
+        ////// UPDATE
+        canvas.width  = container.offsetWidth;
+        canvas.height = container.offsetHeight;
+
+        for (var i = 0; i < boidsCount; i++) {
+            boids[i].Update();
+        }
+
+        ////// RENDER
+
+        // Clear
+        ctx.globalCompositeOperation = 'source-over';
+        ctx.fillStyle = 'rgba(0,0,0,0.25)';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+        // Draw Boids
+        for (var i = 0; i < boidsCount; i++) {
+            boids[i].Draw();
+        }
+
+        // Earth
+//        var time = new Date();
+//        ctx.rotate(((2 * Math.PI) / 60) * time.getSeconds() + ((2 * Math.PI) / 60000) * time.getMilliseconds());
+//        ctx.translate(105, 0);
+//        ctx.fillRect(0, -12, 50, 24); // Shadow
+//        ctx.drawImage(earth, -12, -12);
+
+        // Moon
+//        ctx.save();
+//        ctx.rotate((((2 * Math.PI) / 6) * time.getSeconds() + ((2 * Math.PI) / 6000) * time.getMilliseconds())* 8);
+//        ctx.translate(0, 5);
+//        ctx.drawImage(ball, -3.5, -3.5);
+//        ctx.restore();
+
+
+
+//        ctx.beginPath();
+//        ctx.arc(150, 150, 105, 0, Math.PI * 2, false); // Earth orbit
+//        ctx.stroke();
+
+//        ctx.drawImage(sun, 0, 0, 300, 300);
+
+        window.requestAnimationFrame(draw);
+    }
+
+    init();
+
+</script>
+</body>
+</html>
