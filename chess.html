@@ -1,0 +1,249 @@
+<html>
+<style>
+    * {
+        margin: 0;
+        padding: 0;
+    }
+
+    #container {
+        width: 100vw;
+        height: 100vh;
+    }
+</style>
+<body>
+
+<div id="container">
+    <canvas id="canvas"></canvas>
+</div>
+<script>
+    var container = document.getElementById('container');
+    var canvas = document.getElementById('canvas');
+    canvas.width = container.offsetWidth;
+    canvas.height = container.offsetHeight;
+    var ctx = canvas.getContext('2d');
+
+    function toListSpace(_coords) {
+        return _coords.x + _coords.y * 8;
+    }
+
+    function toCanvasSpace(_coords) {
+        _coords.x = _coords.x * 40 + 20;
+        _coords.y = _coords.y * 40 + 20;
+        return _coords;
+    }
+
+    function toGridSpace(_n, _canvasSpace) {
+        var i = _n % 8;
+        var j = Math.floor(_n / 8);
+
+        var _coords = {
+            x: i,
+            y: j
+        };
+
+        if (_canvasSpace) {
+            _coords = toCanvasSpace(_coords);
+        }
+
+        return _coords;
+    }
+
+    var piece = function (_id, _location, _colour, _type, _game) {
+        return {
+            id: _id,
+            location: _location,
+            type: _type,
+            colour: _colour,
+            game: _game,
+            LegalMoves: function () {
+                var moves = [];
+                var coords = toGridSpace(this.location);
+                switch (this.type) {
+                    case 'Q':
+                        this.RookMoves(moves, coords);
+                        this.BishopMoves(moves, coords);
+                        break;
+                    case 'K':
+                        this.RookMoves(moves, coords, true);
+                        this.BishopMoves(moves, coords, true);
+                        break;
+                    case 'B':
+                        this.BishopMoves(moves, coords);
+                        break;
+                    case 'R':
+                        this.RookMoves(moves, coords);
+                        break;
+                    case 'N':
+                        this.KnightMoves(moves, coords);
+                        break;
+//                    case 'P':
+//                        this.PawnMoves(moves, coords);
+//                        break;
+                }
+                return moves;
+            },
+            validMove: function (_list, _coords) {
+                // Does the square actually exist?
+                if (_coords.x < 0 || _coords.x > 7 ||
+                    _coords.y < 0 || _coords.y > 7) {
+                    return false;
+                }
+
+                // Blocked or capture
+                var location = toListSpace(_coords);
+                if (this.game.board[location] !== null) {
+                    if (this.game.board[location].colour === this.colour) {
+                       return false;
+                    } else {
+                        _coords.capture = 'true';
+                        _list.push(toCanvasSpace(_coords));
+                        return false;
+                    }
+                }
+
+                _list.push(toCanvasSpace(_coords));
+                return true;
+            },
+            PawnMoves: function (_moves, _coords) {
+                var direction = 1;
+                if (this.colour === "W") direction = -1;
+                this.validMove(_moves, {x: _coords.x + 1, y: _coords.y + direction, takeOnly: true});
+                this.validMove(_moves, {x: _coords.x, y: _coords.y + direction, moveOnly: true});
+                this.validMove(_moves, {x: _coords.x - 1, y: _coords.y + direction, takeOnly: true});
+            },
+            KnightMoves: function (_moves, _coords) {
+                this.validMove(_moves, {x: _coords.x + 2, y: _coords.y + 1, jump: true});
+                this.validMove(_moves, {x: _coords.x + 2, y: _coords.y - 1, jump: true});
+                this.validMove(_moves, {x: _coords.x - 2, y: _coords.y + 1, jump: true});
+                this.validMove(_moves, {x: _coords.x - 2, y: _coords.y - 1, jump: true});
+
+                this.validMove(_moves, {x: _coords.x + 1, y: _coords.y + 2, jump: true});
+                this.validMove(_moves, {x: _coords.x + 1, y: _coords.y - 2, jump: true});
+                this.validMove(_moves, {x: _coords.x - 1, y: _coords.y + 2, jump: true});
+                this.validMove(_moves, {x: _coords.x - 1, y: _coords.y - 2, jump: true});
+            },
+            BishopMoves: function (_moves, _coords, _limit) {
+                var loop = 1;
+                while( this.validMove(_moves, {x: _coords.x + loop, y: _coords.y + loop}) ) loop++; loop = 1;
+                while( this.validMove(_moves, {x: _coords.x - loop, y: _coords.y + loop}) ) loop++; loop = 1;
+                while( this.validMove(_moves, {x: _coords.x + loop, y: _coords.y - loop}) ) loop++; loop = 1;
+                while( this.validMove(_moves, {x: _coords.x - loop, y: _coords.y - loop}) ) loop++;
+            },
+            RookMoves: function (_moves, _coords, _limit) {
+                var loop = 1;
+                while( this.validMove(_moves, {x: _coords.x + loop, y: _coords.y}) ) loop++; loop = 1;
+                while( this.validMove(_moves, {x: _coords.x - loop, y: _coords.y}) ) loop++; loop = 1;
+                while( this.validMove(_moves, {x: _coords.x, y: _coords.y - loop}) ) loop++; loop = 1;
+                while( this.validMove(_moves, {x: _coords.x, y: _coords.y + loop}) ) loop++;
+            }
+        };
+    };
+
+
+    var game = {
+        board: [],
+        id: 0,
+        AddPiece: function (_square, _colour, _type) {
+            _square = toListSpace(_square);
+            this.board[_square] = piece(this.id, _square, _colour, _type, this);
+            this.id++;
+        },
+        Initialize: function () {
+            for (var i = 0; i < 64; i++) {
+                game.board[i] = null;
+            }
+
+//            this.AddPiece(0,"B", "R");
+//            this.AddPiece(1,"B", "N");
+//            this.AddPiece(2,"B", "B");
+//            this.AddPiece(3,"B", "Q");
+//            this.AddPiece(4,"B", "K");
+//            this.AddPiece(5,"B", "B");
+//            this.AddPiece(6,"B", "N");
+//            this.AddPiece(7,"B", "R");
+
+//            for (var i = 0; i < 8; i++) {
+//                this.AddPiece(i+8, "B", "P");
+//                this.AddPiece(i+48, "W", "P");
+//            }
+
+//            this.AddPiece(56, "W", "R");
+//            this.AddPiece(57, "W", "N");
+//            this.AddPiece(58, "W", "B");
+//            this.AddPiece(59, "W", "Q");
+//            this.AddPiece(60, "W", "K");
+//            this.AddPiece(61, "W", "B");
+//            this.AddPiece(62, "W", "N");
+//            this.AddPiece(63, "W", "R");
+
+            this.AddPiece({x: 3, y: 7}, "W", "Q");
+            this.AddPiece({x: 3, y: 4}, "B", "P");
+            this.AddPiece({x: 6, y: 4}, "W", "P");
+        }
+    };
+
+
+
+    /////////////////////////////////////////////////////////////////////////
+    function init() {
+        ctx.globalCompositeOperation = 'source-over';
+        ctx.fillStyle = 'rgb(255,255,255)';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        window.requestAnimationFrame(draw);
+
+        game.Initialize();
+    }
+
+    function draw() {
+        ////// UPDATE
+
+        ////// RENDER
+        // Clear
+        ctx.globalCompositeOperation = 'source-over';
+        ctx.fillStyle = 'rgb(0,0,0)';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+        // Board
+        for (var i = 0; i < 64; i++) {
+            var coords = toGridSpace(i, true);
+
+            var rank = (i % 2) === 0;
+            var file = Math.floor(i / 8) % 2 === 0;
+            ctx.fillStyle = rank && !file || !rank && file ? 'rgb(150,120,100)' : 'rgb(220,190,170)';
+            ctx.fillRect(coords.x, coords.y, 40, 40);
+        }
+
+        // Pieces
+        for (var i = 0; i < 64; i++) {
+            if (game.board[i] !== null) {
+                var coords = toGridSpace(i, true);
+                ctx.fillStyle = (game.board[i].colour === "W") ? 'rgb(255,255,255)' : 'rgb(0,0,0)';
+
+                ctx.font = "24px Arial";
+                ctx.fillText(game.board[i].type, coords.x + 10, coords.y + 30);
+            }
+        }
+
+        // Overlay
+        for (var i = 0; i < 64; i++) {
+            if (game.board[i] !== null) {
+                var moves = game.board[i].LegalMoves();
+                for (var k = 0; k < moves.length; k++) {
+                    ctx.globalCompositeOperation = 'source-over';
+                    if (moves[k].capture) {
+                        ctx.fillStyle = 'rgb(250,0,50)';
+                    } else {
+                        ctx.fillStyle = 'rgb(50,200,0)';
+                    }
+
+                    ctx.fillRect(moves[k].x + 15, moves[k].y + 15, 10, 10);
+                }
+            }
+        }
+        window.requestAnimationFrame(draw);
+    }
+
+    init();
+</script>
+</body>
+</html>
