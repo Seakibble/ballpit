@@ -1,397 +1,497 @@
 <html>
-<style>
-    * {
-        margin: 0;
-        padding: 0;
-    }
-
-    #container {
-        width: 100vw;
-        height: 100vh;
-        background: black;
-    }
-
-    #canvas {
-        display: block;
-        padding: 40px;
-        width: 400px;
-        height: 400px;
-        margin: 0 auto;
-    }
-</style>
-<body>
-
-<div id="container">
-    <canvas id="canvas"></canvas>
-</div>
-<script>
-    // CAN I MOVE THERE?
-    // - Is the square in my field of movement?
-    // - - If I'm a pawn, have I moved?
-    // - - If I'm a King, can I castle?
-    // - - - Have I moved?
-    // - - - Has the relevant rook moved?
-    // - - - Is any square involved in the movement in check?
-    // - Does it exist?
-    // - Is it unoccupied or an enemy?
-    // - Is another piece in the way?
-    // - Would moving there leave my king in check?
-    // -
-
-    var canvas = document.getElementById('canvas');
-    canvas.width = 400;
-    canvas.height = 400;
-    var ctx = canvas.getContext('2d');
-
-    function toListSpace(_coords) {
-        return (_coords.x - 1) + (_coords.y - 1) * 8;
-    }
-
-    function toCanvasSpace(_coords) {
-        if (typeof _coords !== "object") {
-            _coords = toGridSpace(_coords);
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
         }
-        _coords.x = _coords.x * 40;
-        _coords.y = _coords.y * 40;
-        return _coords;
-    }
 
-    function toGridSpace(_n) {
-        var i = _n % 8 + 1;
-        var j = Math.floor(_n / 8) + 1;
+        body {
+            font-size: 16px;
+        }
 
-        var _coords = {
-            x: i,
-            y: j
-        };
+        #container {
+            width: 100vw;
+            height: 100vh;
+            background: black;
+        }
 
-        return _coords;
-    }
+        .interface {
+            display: block;
+            width: 400px;
+            margin: 0 auto;
+            padding: 40px;
+        }
 
-    var piece = function (_id, _colour, _type, _game) {
-        return {
-            id: _id,
-            type: _type,
-            colour: _colour,
-            game: _game,
-            moved: false,
-            LegalMoves: function () {
-                var moves = [];
-                var coords = toGridSpace(game.GetPieceLocation(this.id));
-                switch (this.type) {
-                    case 'Q':
-                        this.RookMoves(moves, coords);
-                        this.BishopMoves(moves, coords);
-                        break;
-                    case 'K':
-                        this.RookMoves(moves, coords, true);
-                        this.BishopMoves(moves, coords, true);
-                        break;
-                    case 'B':
-                        this.BishopMoves(moves, coords);
-                        break;
-                    case 'R':
-                        this.RookMoves(moves, coords);
-                        break;
-//                    case 'N':
-//                        this.KnightMoves(moves, coords);
-//                        break;
-                    case 'P':
-                        this.PawnMoves(moves, coords);
-                        break;
+        #canvas {
+            width: 400px;
+            height: 400px;
+            padding-bottom: 40px;
+
+        }
+
+
+        button {
+            padding: 8px 15px;
+            background: #ea2;
+            border: 2px solid white;
+            border-radius: 4px;
+            font-size: 1em;
+        }
+
+        button:hover {
+            cursor: pointer;
+        }
+
+    </style>
+
+    <body>
+
+        <div id="container">
+            <div>
+                <div class="interface">
+                    <canvas id="canvas"></canvas>
+                    <button onclick="update()">Random Move</button>
+                    <button onclick="init()">New Game</button>
+                    <button onclick="debugToggle()">Debug Mode</button>
+                </div>
+            </div>
+            <script>
+                // CAN I MOVE THERE?
+                // - Is the square in my field of movement?
+                // - - If I'm a pawn, have I moved?
+                // - - If I'm a King, can I castle?
+                // - - - Have I moved?
+                // - - - Has the relevant rook moved?
+                // - - - Is any square involved in the movement in check?
+                // - Does it exist?
+                // - Is it unoccupied or an enemy?
+                // - Is another piece in the way?
+                // - Would moving there leave my king in check?
+                // -
+
+                var debugMode = true;
+                var files = [null, 'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'];
+
+                var canvas = document.getElementById('canvas');
+                canvas.width = 400;
+                canvas.height = 400;
+                var ctx = canvas.getContext('2d');
+
+                function toListSpace(_coords) {
+                    return (_coords.x - 1) + (_coords.y - 1) * 8;
                 }
 
-                // Does the current board state allow this piece to capture the oppontent's king?
-                for (var k = 0; k < moves.length; k++) {
-                    var piece = this.game.GetPieceAtSquare(moves[k]);
-                    if (piece !== null
-                        && piece.type === "K"
-                        && piece.color !== this.colour) {
-                        moves[k].checking = true;
+                function toCanvasSpace(_coords) {
+                    if (typeof _coords !== "object") {
+                        _coords = toGridSpace(_coords);
                     }
+                    _coords.x = _coords.x * 40;
+                    _coords.y = (9 - _coords.y) * 40;
+                    return _coords;
                 }
 
-                return moves;
-            },
-            validateMove: function (_list, _coords) {
-                _coords.id = this.id;
-                _coords.type = this.type;
+                function toGridSpace(_n) {
+                    var i = _n % 8 + 1;
+                    var j = Math.floor(_n / 8) + 1;
 
-                // Does the square actually exist?
-                if (_coords.x < 1 || _coords.x > 8 ||
-                    _coords.y < 1 || _coords.y > 8) {
-                    return false;
+                    var _coords = {
+                        x: i,
+                        y: j
+                    };
+
+                    return _coords;
                 }
 
-                // Blocked or capture
-                var piece = this.game.GetPieceAtSquare(_coords);
+                var piece = function (_id, _colour, _type, _game) {
+                    return {
+                        id: _id,
+                        type: _type,
+                        colour: _colour,
+                        game: _game,
+                        moved: false,
+                        LegalMoves: function () {
+                            var moves = [];
+                            var coords = toGridSpace(game.GetPieceLocation(this.id));
+                            switch (this.type) {
+                                case 'Q':
+                                    this.RookMoves(moves, coords);
+                                    this.BishopMoves(moves, coords);
+                                    break;
+                                case 'K':
+                                    this.RookMoves(moves, coords, true);
+                                    this.BishopMoves(moves, coords, true);
+                                    break;
+                                case 'B':
+                                    this.BishopMoves(moves, coords);
+                                    break;
+                                case 'R':
+                                    this.RookMoves(moves, coords);
+                                    break;
+                                //                    case 'N':
+                                //                        this.KnightMoves(moves, coords);
+                                //                        break;
+                                case 'P':
+                                    this.PawnMoves(moves, coords);
+                                    break;
+                            }
 
-                if (piece !== null) {
-                    if (piece.colour !== this.colour && _coords.moveOnly !== true) {
-                        _coords.capture = piece.type;
-                        _list.push(_coords);
+                            // Does the current board state allow this piece to capture the oppontent's king?
+                            for (var k = 0; k < moves.length; k++) {
+                                var piece = this.game.GetPieceAtSquare(moves[k]);
+                                if (piece !== null
+                                    && piece.type === "K"
+                                    && piece.color !== this.colour) {
+                                    moves[k].checking = true;
+                                }
+                            }
+
+                            return moves;
+                        },
+                        validateMove: function (_list, _coords) {
+                            _coords.id = this.id;
+                            _coords.type = this.type;
+
+                            // Does the square actually exist?
+                            if (_coords.x < 1 || _coords.x > 8 ||
+                                _coords.y < 1 || _coords.y > 8) {
+                                return false;
+                            }
+
+                            // Pawn Promotion
+                            if (this.type === "P" && (_coords.y === 8 || _coords.y === 1)) {
+                                _coords.promote = true;
+                            }
+
+                            // Blocked or capture
+                            var piece = this.game.GetPieceAtSquare(_coords);
+
+                            if (piece !== null) {
+                                if (piece.colour !== this.colour && _coords.moveOnly !== true) {
+                                    _coords.capture = piece.type;
+                                    _list.push(_coords);
+                                }
+                                return false;
+                            } else if (_coords.takeOnly) {
+                                return false;
+                            }
+
+                            _list.push(_coords);
+                            return true;
+                        },
+                        PawnMoves: function (_moves, _coords) {
+                            var direction = 1;
+                            if (this.colour === "W") direction = -1;
+                            this.validateMove(_moves, { x: _coords.x + 1, y: _coords.y + direction, takeOnly: true });
+                            this.validateMove(_moves, { x: _coords.x - 1, y: _coords.y + direction, takeOnly: true });
+
+                            if (this.validateMove(_moves, {
+                                x: _coords.x,
+                                y: _coords.y + direction,
+                                moveOnly: true
+                            }) && !this.moved) {
+                                this.validateMove(_moves, {
+                                    x: _coords.x,
+                                    y: _coords.y + direction * 2,
+                                    moveOnly: true,
+                                    pawnRun: true
+                                });
+                            }
+                        },
+                        KnightMoves: function (_moves, _coords) {
+                            this.validateMove(_moves, { x: _coords.x + 2, y: _coords.y + 1, jump: true });
+                            this.validateMove(_moves, { x: _coords.x + 2, y: _coords.y - 1, jump: true });
+                            this.validateMove(_moves, { x: _coords.x - 2, y: _coords.y + 1, jump: true });
+                            this.validateMove(_moves, { x: _coords.x - 2, y: _coords.y - 1, jump: true });
+
+                            this.validateMove(_moves, { x: _coords.x + 1, y: _coords.y + 2, jump: true });
+                            this.validateMove(_moves, { x: _coords.x + 1, y: _coords.y - 2, jump: true });
+                            this.validateMove(_moves, { x: _coords.x - 1, y: _coords.y + 2, jump: true });
+                            this.validateMove(_moves, { x: _coords.x - 1, y: _coords.y - 2, jump: true });
+                        },
+                        BishopMoves: function (_moves, _coords, _limit) {
+                            var i = 1;
+                            while (this.validateMove(_moves, { x: _coords.x + i, y: _coords.y + i })) i += _limit ? 8 : 1;
+                            i = 1;
+                            while (this.validateMove(_moves, { x: _coords.x - i, y: _coords.y + i })) i += _limit ? 8 : 1;
+                            i = 1;
+                            while (this.validateMove(_moves, { x: _coords.x + i, y: _coords.y - i })) i += _limit ? 8 : 1;
+                            i = 1;
+                            while (this.validateMove(_moves, { x: _coords.x - i, y: _coords.y - i })) i += _limit ? 8 : 1;
+                        },
+                        RookMoves: function (_moves, _coords, _limit) {
+                            var i = 1;
+                            while (this.validateMove(_moves, { x: _coords.x + i, y: _coords.y })) i += _limit ? 8 : 1;
+                            i = 1;
+                            while (this.validateMove(_moves, { x: _coords.x - i, y: _coords.y })) i += _limit ? 8 : 1;
+                            i = 1;
+                            while (this.validateMove(_moves, { x: _coords.x, y: _coords.y - i })) i += _limit ? 8 : 1;
+                            i = 1;
+                            while (this.validateMove(_moves, { x: _coords.x, y: _coords.y + i })) i += _limit ? 8 : 1;
+                        },
+                        Promote: function (_promoteTo) {
+                            this.type = _promoteTo;
+                        }
+                    };
+                };
+
+
+                var game = {
+                    board: [],
+                    pieces: [],
+                    bufferBoard: [],
+                    id: 0,
+                    turn: "B",
+                    AddPiece: function (_square, _colour, _type) {
+                        _square = toListSpace(_square);
+                        this.pieces.push(piece(this.id, _colour, _type, this));
+                        this.board[_square] = this.id;
+                        this.id++;
+                    },
+                    GetPieceAtSquare: function (_coords) {
+                        if (typeof _coords !== "number") {
+                            _coords = toListSpace(_coords);
+                        }
+                        if (this.board[_coords] !== null) {
+                            return this.pieces[this.board[_coords]];
+                        } else {
+                            return null;
+                        }
+                    },
+                    GetPieceLocation: function (_id) {
+                        return this.board.indexOf(_id);
+                    },
+                    MovePiece: function (_coords) {
+                        if (_coords !== "stalemateCheck") {
+                            var location = this.GetPieceLocation(_coords.id);
+                            this.board[toListSpace(_coords)] = _coords.id;
+                            this.board[location] = null;
+                        }
+                    },
+                    MakeMove: function (_coords) {
+                        var piece = this.pieces[_coords.id];
+                        var oldLocation = this.GetPieceLocation(_coords.id);
+                        oldLocation = toGridSpace(oldLocation);
+
+                        var msg = piece.type;
+                        msg += files[oldLocation.x] + oldLocation.y;
+                        msg += _coords.capture ? " x " : "   ";
+                        msg += files[_coords.x] + _coords.y;
+                        if (_coords.promote) {
+                            msg += "=Q";
+                        }
+                        if (_coords.check) {
+                            msg += "+";
+                        }
+                        console.log(msg);
+
+                        if (_coords !== "stalemateCheck") {
+                            this.MovePiece(_coords);
+                        } else {
+                            alert("Stalemate Check!");
+                        }
+
+                        piece.moved = true;
+                        if (_coords.promote) {
+                            piece.Promote("Q");
+                        }
+                        this.turn = this.turn == "W" ? "B" : "W";
+                    },
+                    GetLegalMoves: function (_deep, _player) {
+                        var player = _player ? _player : this.turn;
+
+                        var moves = ["stalemateCheck"];
+
+                        // Get the list of legal moves for the player
+                        for (var i = 0; i < 64; i++) {
+                            var piece = this.GetPieceAtSquare(i);
+                            if (piece !== null && piece.colour === player) {
+                                moves = moves.concat(piece.LegalMoves());
+                            }
+                        }
+
+                        var finalMoves = [];
+                        if (_deep === true) {
+                            for (var i = 0; i < moves.length; i++) {
+                                this.bufferBoard = this.board.slice();
+                                this.MovePiece(moves[i]);
+
+                                var opponentMoves = this.GetLegalMoves(false, (this.turn === "W") ? "B" : "W");
+                                var myMoves = this.GetLegalMoves(false, this.turn);
+
+                                var add = true;
+                                // Would my king be left in check?
+                                for (var j = 0; j < opponentMoves.length; j++) {
+                                    if (opponentMoves[j].capture === "K") {
+                                        add = false;
+                                        break;
+                                    }
+                                }
+
+                                // Would I put the other king in check?
+                                for (var j = 0; j < myMoves.length; j++) {
+                                    if (myMoves[j].capture === "K") {
+                                        moves[i].check = true;
+                                        break;
+                                    }
+                                }
+
+                                if (add) {
+                                    finalMoves.push(moves[i]);
+                                }
+                                this.board = this.bufferBoard.slice();
+
+                                if (moves.length > 100) throw new Error("Something went badly wrong!");
+                            }
+                        } else {
+                            finalMoves = moves.slice();
+                        }
+
+                        if (finalMoves.length === 0) {
+                            console.log("checkmate");
+                        }
+
+                        finalMoves.splice(finalMoves.indexOf("stalemateCheck"), 1);
+
+                        if (finalMoves.length === 1 && finalMoves[0] === "stalemateCheck") {
+                            console.log("stalemate");
+                        }
+
+                        return finalMoves;
+                    },
+                    Initialize: function () {
+                        this.turn = "W";
+                        for (var i = 0; i < 64; i++) {
+                            game.board[i] = null;
+                        }
+                        game.bufferBoard = game.board.slice();
+
+                        //            this.AddPiece(0,"B", "R");
+                        //            this.AddPiece(1,"B", "N");
+                        //            this.AddPiece(2,"B", "B");
+                        //            this.AddPiece(3,"B", "Q");
+                        //            this.AddPiece(4,"B", "K");
+                        //            this.AddPiece(5,"B", "B");
+                        //            this.AddPiece(6,"B", "N");
+                        //            this.AddPiece(7,"B", "R");
+
+                        //            for (var i = 0; i < 8; i++) {
+                        //                this.AddPiece(i+8, "B", "P");
+                        //                this.AddPiece(i+48, "W", "P");
+                        //            }
+
+                        //            this.AddPiece(56, "W", "R");
+                        //            this.AddPiece(57, "W", "N");
+                        //            this.AddPiece(58, "W", "B");
+                        //            this.AddPiece(59, "W", "Q");
+                        //            this.AddPiece(60, "W", "K");
+                        //            this.AddPiece(61, "W", "B");
+                        //            this.AddPiece(62, "W", "N");
+                        //            this.AddPiece(63, "W", "R");
+
+                        //            this.AddPiece({x: 7, y: 1}, "B", "R");
+                        //            this.AddPiece({x: 7, y: 2}, "B", "R");
+                        // this.AddPiece({ x: 1, y: 8 }, "B", "R");
+                        this.AddPiece({ x: 2, y: 7 }, "W", "K");
+                        this.AddPiece({ x: 8, y: 7 }, "B", "K");
+                        this.AddPiece({ x: 7, y: 7 }, "W", "P");
+                        //            this.AddPiece({x: 2, y: 3}, "W", "P");
+                        //            this.AddPiece({x: 4, y: 7}, "W", "R");
+                        // this.AddPiece({ x: 3, y: 7 }, "W", "Q");
+                        this.AddPiece({ x: 3, y: 2 }, "W", "P");
+                        // this.AddPiece({ x: 7, y: 7 }, "B", "B");
+                        //            this.AddPiece({x: 3, y: 3}, "B", "R");
                     }
-                    return false;
-                } else if (_coords.takeOnly) {
-                    return false;
+                };
+
+
+                /////////////////////////////////////////////////////////////////////////
+                function init() {
+                    ctx.globalCompositeOperation = 'source-over';
+                    ctx.fillStyle = 'rgb(255,255,255)';
+                    ctx.fillRect(0, 0, canvas.width, canvas.height);
+                    window.requestAnimationFrame(update);
+
+                    game.Initialize();
                 }
 
-                _list.push(_coords);
-                return true;
-            },
-            PawnMoves: function (_moves, _coords) {
-                var direction = 1;
-                if (this.colour === "W") direction = -1;
-                this.validateMove(_moves, {x: _coords.x + 1, y: _coords.y + direction, takeOnly: true});
-                this.validateMove(_moves, {x: _coords.x - 1, y: _coords.y + direction, takeOnly: true});
+                function update() {
+                    // Get list of legal moves
+                    var moves = game.GetLegalMoves(true);
 
-                if (this.validateMove(_moves, {
-                        x: _coords.x,
-                        y: _coords.y + direction,
-                        moveOnly: true
-                    }) && !this.moved) {
-                    this.validateMove(_moves, {
-                        x: _coords.x,
-                        y: _coords.y + direction * 2,
-                        moveOnly: true,
-                        pawnRun: true
-                    });
-                }
-            },
-            KnightMoves: function (_moves, _coords) {
-                this.validateMove(_moves, {x: _coords.x + 2, y: _coords.y + 1, jump: true});
-                this.validateMove(_moves, {x: _coords.x + 2, y: _coords.y - 1, jump: true});
-                this.validateMove(_moves, {x: _coords.x - 2, y: _coords.y + 1, jump: true});
-                this.validateMove(_moves, {x: _coords.x - 2, y: _coords.y - 1, jump: true});
+                    // Clear
+                    ctx.globalCompositeOperation = 'source-over';
+                    ctx.fillStyle = 'rgb(50,50,50)';
+                    ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-                this.validateMove(_moves, {x: _coords.x + 1, y: _coords.y + 2, jump: true});
-                this.validateMove(_moves, {x: _coords.x + 1, y: _coords.y - 2, jump: true});
-                this.validateMove(_moves, {x: _coords.x - 1, y: _coords.y + 2, jump: true});
-                this.validateMove(_moves, {x: _coords.x - 1, y: _coords.y - 2, jump: true});
-            },
-            BishopMoves: function (_moves, _coords, _limit) {
-                var i = 1;
-                while (this.validateMove(_moves, {x: _coords.x + i, y: _coords.y + i})) i += _limit ? 8 : 1;
-                i = 1;
-                while (this.validateMove(_moves, {x: _coords.x - i, y: _coords.y + i})) i += _limit ? 8 : 1;
-                i = 1;
-                while (this.validateMove(_moves, {x: _coords.x + i, y: _coords.y - i})) i += _limit ? 8 : 1;
-                i = 1;
-                while (this.validateMove(_moves, {x: _coords.x - i, y: _coords.y - i})) i += _limit ? 8 : 1;
-            },
-            RookMoves: function (_moves, _coords, _limit) {
-                var i = 1;
-                while (this.validateMove(_moves, {x: _coords.x + i, y: _coords.y})) i += _limit ? 8 : 1;
-                i = 1;
-                while (this.validateMove(_moves, {x: _coords.x - i, y: _coords.y})) i += _limit ? 8 : 1;
-                i = 1;
-                while (this.validateMove(_moves, {x: _coords.x, y: _coords.y - i})) i += _limit ? 8 : 1;
-                i = 1;
-                while (this.validateMove(_moves, {x: _coords.x, y: _coords.y + i})) i += _limit ? 8 : 1;
-            }
-        };
-    };
+                    // Board
+                    for (var i = 0; i < 64; i++) {
+                        var coords = toCanvasSpace(i);
+
+                        var rank = (i % 2) === 0;
+                        var file = Math.floor(i / 8) % 2 === 0;
+                        ctx.fillStyle = rank && !file || !rank && file ? 'rgb(150,120,100)' : 'rgb(210,180,160)';
+                        ctx.fillRect(coords.x, coords.y, 40, 40);
+                    }
+
+                    // Labels
+                    ctx.fillStyle = 'rgb(155,155,155)';
+                    ctx.font = "14px Arial";
 
 
-    var game = {
-        board: [],
-        pieces: [],
-        bufferBoard: [],
-        id: 0,
-        turn: "B",
-        AddPiece: function (_square, _colour, _type) {
-            _square = toListSpace(_square);
-            this.pieces.push(piece(this.id, _colour, _type, this));
-            this.board[_square] = this.id;
-            this.id++;
-        },
-        GetPieceAtSquare: function (_coords) {
-            if (typeof _coords !== "number") {
-                _coords = toListSpace(_coords);
-            }
-            if (this.board[_coords] !== null) {
-                return this.pieces[this.board[_coords]];
-            } else {
-                return null;
-            }
-        },
-        GetPieceLocation: function (_id) {
-            return this.board.indexOf(_id);
-        },
-        MovePiece: function (_coords) {
-            if (_coords !== "stalemateCheck") {
-                var location = this.GetPieceLocation(_coords.id);
-                this.board[toListSpace(_coords)] = _coords.id;
-                this.board[location] = null;
-            }
-        },
-        GetLegalMoves: function (_deep, _player) {
-            var player = _player ? _player : this.turn;
+                    for (var i = 1; i <= 8; i++) {
+                        var coords = toCanvasSpace({ x: i, y: 8 });
+                        ctx.fillText(files[i].toUpperCase(), coords.x + 15, 30);
+                        coords = toCanvasSpace({ x: i, y: 1 });
+                        ctx.fillText(files[i].toUpperCase(), coords.x + 15, coords.y + 60);
+                    }
 
-            var moves = ["stalemateCheck"];
+                    for (var j = 1; j <= 8; j++) {
+                        coords = toCanvasSpace({ x: 1, y: j });
+                        ctx.fillText('' + (j), 20, coords.y + 25);
+                        coords = toCanvasSpace({ x: 8, y: j });
+                        ctx.fillText('' + (j), coords.x + 50, coords.y + 25);
 
-            // Get the list of legal moves for the player
-            for (var i = 0; i < 64; i++) {
-                var piece = this.GetPieceAtSquare(i);
-                if (piece !== null && piece.colour === player) {
-                    moves = moves.concat(piece.LegalMoves());
-                }
-            }
+                    }
 
-            var finalMoves = [];
-            if (_deep === true) {
-                for (var i = 0; i < moves.length; i++) {
-                    this.bufferBoard = this.board.slice();
-                    this.MovePiece(moves[i]);
-                    var opponentMoves = this.GetLegalMoves(false, (this.turn === "W") ? "B" : "W");
-                    var add = true;
-                    // Would my king be vulnerable?
-                    for (var j = 0; j < opponentMoves.length; j++) {
-                        if (opponentMoves[j].capture === "K") {
-                            add = false;
-                            break;
+                    // Pieces
+                    for (var i = 0; i < 64; i++) {
+                        if (game.board[i] !== null) {
+                            var piece = game.GetPieceAtSquare(i);
+                            var coords = toCanvasSpace(i);
+                            ctx.fillStyle = (piece.colour === "W") ? 'rgb(255,255,255)' : 'rgb(0,0,0)';
+
+                            ctx.font = "24px Arial";
+                            ctx.fillText(piece.type, coords.x + 10, coords.y + 30);
                         }
                     }
-                    if (add) {
-                        finalMoves.push(moves[i]);
+                    var move = moves[Math.floor(Math.random() * moves.length)];
+                    game.MakeMove(move);
+
+                    // Overlay
+                    if (debugMode) {
+                        for (var k = 0; k < moves.length; k++) {
+                            moves[k] = toCanvasSpace(moves[k]);
+                            ctx.globalCompositeOperation = 'source-over';
+                            if (moves[k].promote) {
+                                ctx.fillStyle = 'rgb(250,250,50)';
+                            } else if (moves[k].capture) {
+                                ctx.fillStyle = 'rgb(250,0,50)';
+                            } else {
+                                ctx.fillStyle = 'rgb(50,200,0)';
+                            }
+
+                            ctx.fillRect(moves[k].x + 15, moves[k].y + 15, 10, 10);
+                        }
                     }
-                    this.board = this.bufferBoard.slice();
 
-                    if (moves.length > 100) throw new Error("Something went badly wrong!");
                 }
-            } else {
-                finalMoves = moves.slice();
-            }
 
-            if (finalMoves.length === 1 && finalMoves[0] === "stalemateCheck") {
-                console.log("stalemate");
-            } else if (finalMoves.length === 0) {
-                console.log("checkmate");
-            }
+                function debugToggle() {
+                    debugMode = !debugMode;
+                }
 
-            return finalMoves;
-        },
-        Initialize: function () {
-            for (var i = 0; i < 64; i++) {
-                game.board[i] = null;
-            }
-            game.bufferBoard = game.board.slice();
+                init();
+            </script>
+    </body>
 
-//            this.AddPiece(0,"B", "R");
-//            this.AddPiece(1,"B", "N");
-//            this.AddPiece(2,"B", "B");
-//            this.AddPiece(3,"B", "Q");
-//            this.AddPiece(4,"B", "K");
-//            this.AddPiece(5,"B", "B");
-//            this.AddPiece(6,"B", "N");
-//            this.AddPiece(7,"B", "R");
-
-//            for (var i = 0; i < 8; i++) {
-//                this.AddPiece(i+8, "B", "P");
-//                this.AddPiece(i+48, "W", "P");
-//            }
-
-//            this.AddPiece(56, "W", "R");
-//            this.AddPiece(57, "W", "N");
-//            this.AddPiece(58, "W", "B");
-//            this.AddPiece(59, "W", "Q");
-//            this.AddPiece(60, "W", "K");
-//            this.AddPiece(61, "W", "B");
-//            this.AddPiece(62, "W", "N");
-//            this.AddPiece(63, "W", "R");
-
-//            this.AddPiece({x: 7, y: 1}, "B", "R");
-//            this.AddPiece({x: 7, y: 2}, "B", "R");
-            this.AddPiece({x: 1, y: 8}, "B", "R");
-            this.AddPiece({x: 2, y: 2}, "W", "K");
-            this.AddPiece({x: 8, y: 2}, "B", "K");
-//            this.AddPiece({x: 2, y: 3}, "W", "P");
-//            this.AddPiece({x: 4, y: 7}, "W", "R");
-            this.AddPiece({x: 3, y: 7}, "W", "Q");
-            this.AddPiece({x: 3, y: 3}, "W", "P");
-            this.AddPiece({x: 7, y: 7}, "B", "B");
-//            this.AddPiece({x: 3, y: 3}, "B", "R");
-        }
-    };
-
-
-    /////////////////////////////////////////////////////////////////////////
-    function init() {
-        ctx.globalCompositeOperation = 'source-over';
-        ctx.fillStyle = 'rgb(255,255,255)';
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
-        window.requestAnimationFrame(draw);
-
-        game.Initialize();
-    }
-
-    function draw() {
-        ////// UPDATE
-
-        ////// RENDER
-        // Clear
-        ctx.globalCompositeOperation = 'source-over';
-        ctx.fillStyle = 'rgb(50,50,50)';
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-        // Board
-        for (var i = 0; i < 64; i++) {
-            var coords = toCanvasSpace(i);
-
-            var rank = (i % 2) === 0;
-            var file = Math.floor(i / 8) % 2 === 0;
-            ctx.fillStyle = rank && !file || !rank && file ? 'rgb(150,120,100)' : 'rgb(210,180,160)';
-            ctx.fillRect(coords.x, coords.y, 40, 40);
-        }
-
-        ctx.fillStyle = 'rgb(155,155,155)';
-        ctx.font = "14px Arial";
-        var files = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'];
-        for (var i = 1; i <= 8; i++) {
-            var coords = toCanvasSpace({x: i, y: 1});
-            ctx.fillText(files[i - 1], coords.x + 15, 30);
-            coords = toCanvasSpace({x: i, y: 8});
-            ctx.fillText(files[i - 1], coords.x + 15, coords.y + 60);
-        }
-
-        for (var j = 1; j <= 8; j++) {
-            coords = toCanvasSpace({x: 1, y: j});
-            ctx.fillText('' + j, 20, coords.y + 25);
-            coords = toCanvasSpace({x: 8, y: j});
-            ctx.fillText('' + j, coords.x + 50, coords.y + 25);
-
-        }
-
-        // Pieces
-        for (var i = 0; i < 64; i++) {
-            if (game.board[i] !== null) {
-                var piece = game.GetPieceAtSquare(i);
-                var coords = toCanvasSpace(i);
-                ctx.fillStyle = (piece.colour === "W") ? 'rgb(255,255,255)' : 'rgb(0,0,0)';
-
-                ctx.font = "24px Arial";
-                ctx.fillText(piece.type, coords.x + 10, coords.y + 30);
-            }
-        }
-
-        // Overlay
-        var moves = game.GetLegalMoves(true);
-
-        for (var k = 0; k < moves.length; k++) {
-            moves[k] = toCanvasSpace(moves[k]);
-            ctx.globalCompositeOperation = 'source-over';
-            if (moves[k].capture) {
-                ctx.fillStyle = 'rgb(250,0,50)';
-            } else {
-                ctx.fillStyle = 'rgb(50,200,0)';
-            }
-
-            ctx.fillRect(moves[k].x + 15, moves[k].y + 15, 10, 10);
-        }
-//        window.requestAnimationFrame(draw);
-    }
-
-    init();
-</script>
-</body>
 </html>
